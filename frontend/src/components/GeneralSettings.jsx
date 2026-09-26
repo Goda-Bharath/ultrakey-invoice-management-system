@@ -2,71 +2,94 @@ import { useEffect, useState } from "react";
 
 const API_URL = "http://127.0.0.1:8000/api/general-settings/";
 
+const DEFAULT_SETTINGS = {
+  yearStart: "01 Apr",
+  yearEnd: "31 Mar",
+  predefinedItems:
+    "1 | Web Development | 25000 | Website development service\n" +
+    "1 | Web Hosting for 1 year | 2500 | Web hosting space for 1 year\n" +
+    "1 | SSL Certificate for 1 Year | 1200 | SSL certificate for one year",
+};
+
 function GeneralSettings() {
-  const [settings, setSettings] = useState({
-    yearStart: "01 Apr",
-    yearEnd: "31 Mar",
-    predefinedItems:
-      "1 | Web Development | 25000 | Website development service\n" +
-      "1 | Web Hosting for 1 year | 2500 | Web hosting space for 1 year\n" +
-      "1 | SSL Certificate for 1 Year | 1200 | SSL certificate for one year",
-  });
-
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [settingsId, setSettingsId] = useState(null);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
 
-  // GET settings from Django
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // --------------------------------------------------
+  // GET GENERAL SETTINGS
+  // --------------------------------------------------
   useEffect(() => {
-    fetch(API_URL)
-      .then((response) => {
+    const loadSettings = async () => {
+      try {
+        setLoading(true);
+
+        const response = await fetch(API_URL);
+
         if (!response.ok) {
-          throw new Error("Failed to load settings");
+          throw new Error(`Failed to load settings (${response.status})`);
         }
-        return response.json();
-      })
-      .then((data) => {
+
+        const data = await response.json();
+
         console.log("General Settings API:", data);
 
-        if (data.length > 0) {
+        if (Array.isArray(data) && data.length > 0) {
           const saved = data[0];
 
           setSettingsId(saved.id);
 
           setSettings({
-            yearStart: saved.year_start || "01 Apr",
-            yearEnd: saved.year_end || "31 Mar",
-            predefinedItems: saved.predefined_items || "",
+            yearStart: saved.year_start || DEFAULT_SETTINGS.yearStart,
+            yearEnd: saved.year_end || DEFAULT_SETTINGS.yearEnd,
+            predefinedItems:
+              saved.predefined_items || DEFAULT_SETTINGS.predefinedItems,
           });
         }
-      })
-      .catch((error) => {
-        console.error("API Error:", error);
-        setMessage("Unable to load settings.");
-      })
-      .finally(() => {
+      } catch (error) {
+        console.error("General Settings GET Error:", error);
+
+        setMessage("Unable to load general settings.");
+        setMessageType("error");
+      } finally {
         setLoading(false);
-      });
+      }
+    };
+
+    loadSettings();
   }, []);
 
-  // Handle input changes
-  const handleChange = (e) => {
-    const { name, value } = e.target;
+  // --------------------------------------------------
+  // HANDLE INPUT CHANGES
+  // --------------------------------------------------
+  const handleChange = (event) => {
+    const { name, value } = event.target;
 
-    setSettings((prev) => ({
-      ...prev,
+    setSettings((previousSettings) => ({
+      ...previousSettings,
       [name]: value,
     }));
   };
 
-  // Save settings to Django
+  // --------------------------------------------------
+  // SAVE GENERAL SETTINGS
+  // --------------------------------------------------
   const handleSave = async () => {
-    setMessage("");
+    if (saving) return;
 
-    const data = {
+    setMessage("");
+    setMessageType("");
+    setSaving(true);
+
+    const requestData = {
       year_start: settings.yearStart,
       year_end: settings.yearEnd,
-      predefined_items: settings.predefinedItems,
+      predefined_items: settings.predefinedItems.trim(),
     };
 
     try {
@@ -79,48 +102,68 @@ function GeneralSettings() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(data),
+          body: JSON.stringify(requestData),
         });
       } else {
-        // Create new settings
+        // Create settings for the first time
         response = await fetch(API_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(data),
+          body: JSON.stringify(requestData),
         });
       }
 
+      const responseData = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Save error:", errorData);
-        throw new Error("Failed to save settings");
+        console.error("Save error:", responseData);
+
+        throw new Error(
+          responseData.detail ||
+            responseData.error ||
+            "Failed to save general settings."
+        );
       }
 
-      const savedData = await response.json();
-
-      setSettingsId(savedData.id);
+      // Store database ID after POST
+      setSettingsId(responseData.id);
 
       setMessage("General settings saved successfully.");
-
-      setTimeout(() => {
-        setMessage("");
-      }, 3000);
+      setMessageType("success");
     } catch (error) {
-      console.error(error);
-      setMessage("Failed to save general settings.");
+      console.error("General Settings Save Error:", error);
+
+      setMessage(
+        error.message || "Failed to save general settings."
+      );
+      setMessageType("error");
+    } finally {
+      setSaving(false);
     }
   };
 
+  // --------------------------------------------------
+  // LOADING STATE
+  // --------------------------------------------------
   if (loading) {
     return (
       <div className="rounded-xl bg-white p-6 shadow-sm">
-        <p className="text-gray-600">Loading settings...</p>
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600" />
+
+          <p className="text-gray-600">
+            Loading general settings...
+          </p>
+        </div>
       </div>
     );
   }
 
+  // --------------------------------------------------
+  // PAGE
+  // --------------------------------------------------
   return (
     <div className="rounded-xl bg-white p-5 shadow-sm sm:p-6">
 
@@ -131,20 +174,28 @@ function GeneralSettings() {
         </h2>
 
         <p className="mt-1 text-sm text-gray-500">
-          Configure general options for your quotation and invoice system.
+          Configure general options for your quotation and invoice
+          system.
         </p>
       </div>
 
-      {/* Information box */}
+      {/* Information */}
       <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
         <p className="text-sm text-gray-600">
-          ℹ️ Just some general options.
+          ℹ️ Configure the financial year and predefined line items
+          used throughout the application.
         </p>
       </div>
 
-      {/* Success / Error message */}
+      {/* Success / Error Message */}
       {message && (
-        <div className="mb-5 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+        <div
+          className={`mb-5 rounded-lg border p-4 text-sm ${
+            messageType === "success"
+              ? "border-green-200 bg-green-50 text-green-700"
+              : "border-red-200 bg-red-50 text-red-700"
+          }`}
+        >
           {message}
         </div>
       )}
@@ -153,16 +204,20 @@ function GeneralSettings() {
 
         {/* Year Start */}
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
-          <label className="font-medium text-gray-700">
+          <label
+            htmlFor="yearStart"
+            className="font-medium text-gray-700"
+          >
             Year Start
           </label>
 
           <div className="md:col-span-2">
             <select
+              id="yearStart"
               name="yearStart"
               value={settings.yearStart}
               onChange={handleChange}
-              className="w-full max-w-sm rounded-lg border border-gray-300 bg-white px-3 py-2.5 outline-none focus:border-gray-500"
+              className="w-full max-w-sm rounded-lg border border-gray-300 bg-white px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               <option value="01 Jan">01 Jan</option>
               <option value="01 Feb">01 Feb</option>
@@ -179,23 +234,27 @@ function GeneralSettings() {
             </select>
 
             <p className="mt-1 text-xs text-gray-400">
-              The start date of the fiscal year
+              The start date of the fiscal year.
             </p>
           </div>
         </div>
 
         {/* Year End */}
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
-          <label className="font-medium text-gray-700">
+          <label
+            htmlFor="yearEnd"
+            className="font-medium text-gray-700"
+          >
             Year End
           </label>
 
           <div className="md:col-span-2">
             <select
+              id="yearEnd"
               name="yearEnd"
               value={settings.yearEnd}
               onChange={handleChange}
-              className="w-full max-w-sm rounded-lg border border-gray-300 bg-white px-3 py-2.5 outline-none focus:border-gray-500"
+              className="w-full max-w-sm rounded-lg border border-gray-300 bg-white px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               <option value="31 Jan">31 Jan</option>
               <option value="28 Feb">28 Feb</option>
@@ -212,56 +271,79 @@ function GeneralSettings() {
             </select>
 
             <p className="mt-1 text-xs text-gray-400">
-              The end date of the fiscal year
+              The end date of the fiscal year.
             </p>
           </div>
         </div>
 
-        {/* Predefined Items */}
+        {/* Predefined Line Items */}
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
           <div>
-            <label className="font-medium text-gray-700">
+            <label
+              htmlFor="predefinedItems"
+              className="font-medium text-gray-700"
+            >
               Pre-Defined Line Items
             </label>
+
+            <p className="mt-1 text-xs text-gray-400">
+              These items can be reused while creating invoices and
+              quotations.
+            </p>
           </div>
 
           <div className="md:col-span-2">
             <textarea
+              id="predefinedItems"
               name="predefinedItems"
               value={settings.predefinedItems}
               onChange={handleChange}
-              rows="7"
+              rows={7}
               placeholder="1 | Web Design | 5000 | Designing the website"
-              className="w-full rounded-lg border border-gray-300 px-3 py-3 font-mono text-sm outline-none focus:border-gray-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-3 font-mono text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
 
-            <p className="mt-2 text-xs leading-5 text-gray-400">
-              Add one line item per line in this format:
-              <br />
-              <strong>
+            <div className="mt-2 rounded-lg bg-gray-50 p-3 text-xs leading-5 text-gray-500">
+              <p>
+                Add one line item per line using:
+              </p>
+
+              <p className="mt-1 font-semibold text-gray-700">
                 Qty | Title | Price | Description
-              </strong>
-              <br />
-              Each field is separated by the | symbol.
-              <br />
-              Price should contain numbers only.
-            </p>
+              </p>
+
+              <p className="mt-1">
+                Example:
+              </p>
+
+              <p className="font-mono">
+                1 | Web Design | 5000 | Designing the website
+              </p>
+
+              <p className="mt-1">
+                Each field must be separated by the <strong>|</strong>{" "}
+                symbol. Price should contain numbers only.
+              </p>
+            </div>
           </div>
         </div>
-
       </div>
 
-      {/* Save */}
+      {/* Save Button */}
       <div className="mt-8">
         <button
           type="button"
           onClick={handleSave}
-          className="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white hover:bg-blue-700"
+          disabled={saving}
+          className="inline-flex min-w-32 items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Save
+          {saving && (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          )}
+
+          {saving ? "Saving..." : "Save"}
         </button>
       </div>
-
     </div>
   );
 }
